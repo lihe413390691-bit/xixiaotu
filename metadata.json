@@ -1,0 +1,8 @@
+{
+  "name": "Cinematic Director AI Storyboarder",
+  "description": "A high-end tool for directors to transform plots into professional Sora-ready video storyboards with deep narrative analysis and visual pacing.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
