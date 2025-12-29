@@ -1,4 +1,12 @@
 
+export interface Comment {
+  id: string;
+  userName: string;
+  userRole: string;
+  text: string;
+  timestamp: number;
+}
+
 export interface AnimationShot {
   shotNo: string;      // 镜号
   duration: string;    // 时长
@@ -10,6 +18,7 @@ export interface AnimationShot {
   lighting: string;    // 光影 (辅助导演参考)
   tone: string;        // 色调 (辅助导演参考)
   characters: string[]; // 出场人物
+  comments?: Comment[]; // 协作评论
 }
 
 export interface ShotGroup {
@@ -23,4 +32,12 @@ export interface StoryboardResponse {
   totalShots: number;
   keyVisualConcept: string;
   groups: ShotGroup[];
+}
+
+export interface Collaborator {
+  id: string;
+  name: string;
+  role: string;
+  avatar: string;
+  isOnline: boolean;
 }
