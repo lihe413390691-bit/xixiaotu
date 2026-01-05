@@ -25,6 +25,8 @@ export interface ShotGroup {
   eventTitle: string;
   description: string;
   reasoning: string; // 导演的推理/构思过程
+  sceneName: string; // 场景名称
+  scenePrompt: string; // 纯场景环境提示词 (不含人物)
   shots: AnimationShot[];
 }
 

@@ -15,6 +15,14 @@ const extractJson = (text: string): string => {
 };
 
 const getModelConfig = () => {
+  const customModel = localStorage.getItem('导演_API_MODEL');
+  if (customModel && customModel.trim() !== '') {
+    return {
+      flash: customModel,
+      pro: customModel,
+      isLowQuotaMode: false
+    };
+  }
   return {
     flash: localStorage.getItem('导演_MODEL_FLASH') || 'gemini-3-flash-preview',
     pro: localStorage.getItem('导演_MODEL_PRO') || 'gemini-3-pro-preview',
@@ -24,11 +32,12 @@ const getModelConfig = () => {
 
 const getApiClient = () => {
   const customKey = localStorage.getItem('导演_API_KEY');
+  const isCompatible = localStorage.getItem('导演_API_COMPATIBLE') === 'true';
   let customEndpoint = localStorage.getItem('导演_API_URL');
   const apiKey = customKey?.trim() || process.env.API_KEY || '';
   
   let baseUrl: string | undefined = undefined;
-  if (customEndpoint && customEndpoint.trim() !== '') {
+  if (isCompatible && customEndpoint && customEndpoint.trim() !== '') {
     baseUrl = customEndpoint.trim()
       .replace(/\/v1beta\/?$/, '')
       .replace(/\/v1\/?$/, '')
@@ -41,19 +50,28 @@ const getApiClient = () => {
   });
 };
 
-export const testApiConnection = async (): Promise<{ success: boolean; message: string }> => {
-  if (!localStorage.getItem('导演_API_KEY')) {
+export const testApiConnection = async (tempKey?: string, tempUrl?: string, compatible?: boolean, tempModel?: string): Promise<{ success: boolean; message: string }> => {
+  const apiKey = tempKey || localStorage.getItem('导演_API_KEY') || process.env.API_KEY || '';
+  if (!apiKey) {
     return { success: false, message: "尚未配置 API Key" };
   }
   try {
-    const ai = getApiClient();
-    const { flash } = getModelConfig();
+    const isCompatible = compatible ?? (localStorage.getItem('导演_API_COMPATIBLE') === 'true');
+    const customEndpoint = tempUrl || localStorage.getItem('导演_API_URL');
+    let baseUrl: string | undefined = undefined;
+    if (isCompatible && customEndpoint && customEndpoint.trim() !== '') {
+      baseUrl = customEndpoint.trim().replace(/\/v1beta\/?$/, '').replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+    }
+
+    const ai = new GoogleGenAI({ apiKey, baseUrl });
+    const modelToUse = tempModel || getModelConfig().flash;
+    
     await ai.models.generateContent({
-      model: flash,
+      model: modelToUse,
       contents: "ping",
       config: { maxOutputTokens: 1 }
     });
-    return { success: true, message: "连接成功" };
+    return { success: true, message: `连接成功！已检测到模型：${modelToUse}` };
   } catch (error: any) {
     let msg = error.message || "连接失败";
     if (msg.includes("429")) msg = "额度已耗尽 (429): 请检查余额或开启极速模式";
@@ -67,12 +85,12 @@ export const segmentPlot = async (plot: string): Promise<string[]> => {
   
   const response = await ai.models.generateContent({
     model: flash,
-    contents: `你是一名世界顶级的剧作监制。请详细阅读剧本，将其拆解为 3-5 个核心事件段落。
+    contents: `你是一名世界顶级的剧作监制。请地毯式研读剧本，将其拆解为若干核心事件段落。
 
-【严控指令】
-1. 禁止私自添加剧本以外的任何剧情、台词或人物。
-2. 特别标注剧本中的 OS (Off-Screen) 和对白内容，确保 100% 还原。
-3. 全部使用中文输出。
+【绝对禁令】
+1. **识别“△”标志**：剧本中所有以“△”开头的描述都是核心镜头指令，必须完整保留。
+2. **零遗漏对白**：必须完整保留每一句台词、OS 内心独白和环境声描述。
+3. 全部使用中文输出，严禁出现任何英文单词或缩写。
 
 剧本内容:
 <<< ${plot} >>>`,
@@ -94,7 +112,7 @@ export const segmentPlot = async (plot: string): Promise<string[]> => {
 
 export const generateShotGroup = async (segment: string, isFirst: boolean): Promise<ShotGroup> => {
   const ai = getApiClient();
-  const isCustom = !!localStorage.getItem('导演_API_URL');
+  const isCompatible = localStorage.getItem('导演_API_COMPATIBLE') === 'true';
   const { pro, flash, isLowQuotaMode } = getModelConfig();
   const activeModel = isLowQuotaMode ? flash : pro;
 
@@ -102,10 +120,12 @@ export const generateShotGroup = async (segment: string, isFirst: boolean): Prom
     responseMimeType: "application/json",
     responseSchema: {
       type: Type.OBJECT,
-      required: ["eventTitle", "reasoning", "shots"],
+      required: ["eventTitle", "reasoning", "sceneName", "scenePrompt", "shots"],
       properties: {
         eventTitle: { type: Type.STRING },
-        reasoning: { type: Type.STRING, description: "导演对剧本深度推理，侧重于人物 OS 心理动机与环境压力的关联分析" },
+        reasoning: { type: Type.STRING, description: "导演对剧作全量的深度推理，解析视觉爆发点。必须全中文。" },
+        sceneName: { type: Type.STRING, description: "本段落使用的核心场景名称。" },
+        scenePrompt: { type: Type.STRING, description: "纯场景环境底图提示词，详细描述光影、材质、空间感，严禁出现人物。必须全中文。" },
         shots: {
           type: Type.ARRAY,
           items: {
@@ -113,11 +133,11 @@ export const generateShotGroup = async (segment: string, isFirst: boolean): Prom
             required: ["shotNo", "duration", "action", "audio", "imagePrompt", "videoPrompt", "soundEffects", "lighting", "tone"],
             properties: {
               shotNo: { type: Type.STRING },
-              duration: { type: Type.STRING, description: "固定为10s" },
-              action: { type: Type.STRING, description: "镜头细节描述。标注是否为震撼镜头或空景转场。" },
-              audio: { type: Type.STRING, description: "原文台词/OS，严禁任何修改。" },
-              imagePrompt: { type: Type.STRING, description: "单帧关键帧。人物和场景名用【】。" },
-              videoPrompt: { type: Type.STRING, description: "10s动态提示词。必须包含 [0-3s], [3-7s], [7-10s] 三个演化阶段，且三阶段画面必须紧密关联。必须嵌入原文台词并视觉化环境音。" },
+              duration: { type: Type.STRING, description: "固定为10秒" },
+              action: { type: Type.STRING, description: "镜头细节。若有震撼、宏伟、激昂、澎湃等词，请使用 [[词汇]] 格式标注。" },
+              audio: { type: Type.STRING, description: "还原对白/独白。必须全中文。" },
+              imagePrompt: { type: Type.STRING, description: "绘画提示词。要求：使用中文，识别场景和人物并用【 】标注。" },
+              videoPrompt: { type: Type.STRING, description: "Sora 工业级 10秒 提示词。必须包含衔接逻辑、嵌入对白、系统音结构块及物理反馈。" },
               soundEffects: { type: Type.STRING },
               lighting: { type: Type.STRING },
               tone: { type: Type.STRING }
@@ -128,27 +148,32 @@ export const generateShotGroup = async (segment: string, isFirst: boolean): Prom
     }
   };
 
-  if (!isCustom && !isLowQuotaMode) {
+  if (!isCompatible && !isLowQuotaMode) {
     config.thinkingConfig = { thinkingBudget: 16384 };
   }
   
   const response = await ai.models.generateContent({
     model: activeModel,
-    contents: `你现在是一名电影导演（代表作《哪吒》《大鱼海棠》）。请将以下剧本转化为工业级分镜。
+    contents: `你现在是一名世界顶级导演（思维对标《哪吒》《大鱼海棠》）。请将剧本片段转化为工业级分镜蓝图。
 
-【🎬 导演最高指令 - 极致连贯性与忠诚度】
-1. **剧本绝对还原**：严禁修改任何人物对话内容（含 OS）和剧情。你唯一的职责是将文字转化为极富感染力的视觉提示。
-2. **10秒三帧深度关联（核心升级）**：
-   - 每一个 videoPrompt 必须严格按照三个阶段撰写：
-     - **[0-3s] 动态起势与衔接**：承接上一镜头的运动惯性，设定本镜头的视觉基调。
-     - **[3-7s] 核心叙事与同步**：嵌入原文台词文本，描述角色说话时的具体神态细节（唇动、眼神聚焦、呼吸感），实现音画高度同步。
-     - **[7-10s] 余韵演化与动线**：画面向下一阶段自然推演，预留出动作走向，严防跳帧。
-3. **OS (内心独白) 的心理外化**：
-   - OS 是内心的震颤。通过推理，将其转化为可见的视觉现象。例如：角色内心绝望时，周围的影调应在高光处产生撕裂感，或通过极细微的眼底颤动来表达。
-4. **空景转场与震撼镜头**：
-   - 你有权在叙事节奏需要处插入“震撼镜头”（极致的构图美学）或“空景转场”（利用环境物象如云、水、尘埃传递情绪），以确保剪辑点丝滑。
-5. **音效视觉化**：描述环境音对画面产生的物理影响（如：厚重的重低音导致空气纹理的视觉扭曲）。
-6. **全中文输出**。
+【🎬 核心指令：全中文输出规范】
+- 严禁输出任何英文，包括电影术语必须转化为中文（例如：Long shot -> 远景，Zoom in -> 推镜头）。
+- 场景底图描述（scenePrompt）需展现电影感美术设定，包含纹理、天气、光线。
+
+【🎥 视觉资产标注规范】
+1. **场景资产锁定**：
+   - 提取本组镜头的核心背景场景，生成纯环境中文描述，不得包含任何人物动作。
+2. **绘画黄金标注（imagePrompt）**：
+   - 识别场景名和出场角色名，强制使用【 】包裹。
+3. **情绪与场面标记（action）**：
+   - 在描述中，若涉及顶级视效（如震撼、宏伟、澎湃、极致）等词，必须使用 [[词汇]] 标注。
+
+【Sora 10秒工业级动力学模板】
+- [0-3s] 物理惯性衔接：描述起始状态，确保与前一镜头的物理连续性。
+- [3-7s] 核心爆发与对白嵌入：执行“△”指令，描述说话时的口型与情绪导致的物理反馈。
+- [7-10s] 预留动势动线：描述结尾的镜头位移或角色惯性，为下一镜头的衔接做准备。
+
+全部输出必须为中文。
 
 当前剧本段落内容:
 <<< ${segment} >>>`,
@@ -159,12 +184,12 @@ export const generateShotGroup = async (segment: string, isFirst: boolean): Prom
 };
 
 export const generateStoryboard = async (plot: string, onProgress?: (msg: string) => void): Promise<StoryboardResponse> => {
-  onProgress?.("正在深度研读剧本，并规划 10s 三帧叙事动力学架构...");
+  onProgress?.("正在地毯式扫描剧本，锁定核心指令并锁定系统提示块...");
   const segments = await segmentPlot(plot);
   const groups: ShotGroup[] = [];
   let totalShots = 0;
   for (let i = 0; i < segments.length; i++) {
-    onProgress?.(`正在构思第 ${i + 1} / ${segments.length} 幕：强化 OS 推理与丝滑转场中...`);
+    onProgress?.(`正在构思第 ${i + 1} / ${segments.length} 幕：同步场景资产与情绪高亮...`);
     const group = await generateShotGroup(segments[i], i === 0);
     groups.push(group);
     totalShots += group.shots.length;

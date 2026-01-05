@@ -23,12 +23,12 @@ const App: React.FC = () => {
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [customEndpoint, setCustomEndpoint] = useState(localStorage.getItem('导演_API_URL') || '');
   const [customKey, setCustomKey] = useState(localStorage.getItem('导演_API_KEY') || '');
-  const [modelFlash, setModelFlash] = useState(localStorage.getItem('导演_MODEL_FLASH') || 'gemini-3-flash-preview');
-  const [modelPro, setModelPro] = useState(localStorage.getItem('导演_MODEL_PRO') || 'gemini-3-pro-preview');
+  const [customModel, setCustomModel] = useState(localStorage.getItem('导演_API_MODEL') || '');
+  const [isCompatibleMode, setIsCompatibleMode] = useState(localStorage.getItem('导演_API_COMPATIBLE') === 'true');
   const [isLowQuotaMode, setIsLowQuotaMode] = useState(localStorage.getItem('导演_LOW_QUOTA_MODE') === 'true');
   
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [testErrorMessage, setTestErrorMessage] = useState('');
+  const [testMessage, setTestMessage] = useState('');
 
   const [currentUser, setCurrentUser] = useState(COLLABORATORS[0]);
   const [isCollaborating, setIsCollaborating] = useState(false);
@@ -52,8 +52,8 @@ const App: React.FC = () => {
   const saveApiSettings = () => {
     localStorage.setItem('导演_API_URL', customEndpoint.trim().replace(/\/+$/, ''));
     localStorage.setItem('导演_API_KEY', customKey.trim());
-    localStorage.setItem('导演_MODEL_FLASH', modelFlash.trim());
-    localStorage.setItem('导演_MODEL_PRO', modelPro.trim());
+    localStorage.setItem('导演_API_MODEL', customModel.trim());
+    localStorage.setItem('导演_API_COMPATIBLE', String(isCompatibleMode));
     localStorage.setItem('导演_LOW_QUOTA_MODE', String(isLowQuotaMode));
     if (customKey.trim()) setHasApiKey(true);
   };
@@ -61,17 +61,19 @@ const App: React.FC = () => {
   const handleTestConnection = async () => {
     if (!customKey.trim()) {
       setTestStatus('error');
-      setTestErrorMessage('请输入 API Key');
+      setTestMessage('请输入 API Key');
       return;
     }
-    saveApiSettings();
     setTestStatus('testing');
-    setTestErrorMessage('');
-    const result = await testApiConnection();
-    if (result.success) setTestStatus('success');
-    else {
+    setTestMessage('');
+    const result = await testApiConnection(customKey, customEndpoint, isCompatibleMode, customModel);
+    if (result.success) {
+      setTestStatus('success');
+      setTestMessage(result.message);
+      saveApiSettings(); // 测试成功自动保存
+    } else {
       setTestStatus('error');
-      setTestErrorMessage(result.message);
+      setTestMessage(result.message);
     }
   };
 
@@ -140,8 +142,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen pb-24 selection:bg-amber-500/30 bg-[#0a0a0a] text-white">
-      <header className="sticky top-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-[#1a1a1a] px-6 py-4 flex justify-between items-center">
+    <div className="min-h-screen pb-24 selection:bg-amber-500/30 bg-[#0a0a0a] text-white overflow-x-hidden">
+      <header className="sticky top-0 z-[60] bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-[#1a1a1a] px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center font-bold text-black text-xl serif-font shadow-[0_0_15px_rgba(245,158,11,0.3)]">D</div>
           <div>
@@ -150,119 +152,193 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 relative">
+        <div className="flex items-center gap-6 relative">
           <button 
-            onClick={() => setShowApiSettings(!showApiSettings)}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-full border transition-all text-[11px] font-mono uppercase ${showApiSettings ? 'bg-amber-500 text-black border-amber-500' : 'bg-white/5 border-white/20 text-gray-400 hover:bg-white/10'}`}
+            onClick={() => setShowApiSettings(true)}
+            className="group flex items-center gap-2 px-5 py-2 rounded-xl bg-white/5 border border-white/10 transition-all text-[11px] font-bold uppercase hover:bg-white hover:text-black hover:border-white shadow-lg"
           >
-            <span className="text-sm">⚙️</span>
-            {isLowQuotaMode ? '极速模式' : '标准模式'}
+            <span className="text-sm transition-transform group-hover:rotate-45">⚙️</span>
+            API配置
           </button>
-
-          {showApiSettings && (
-            <div ref={modalRef} className="absolute top-12 right-0 w-80 bg-[#111] border border-[#222] rounded-2xl p-5 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200 z-[60]">
-              <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/5">
-                <h3 className="text-xs font-black text-white uppercase tracking-widest">高级配置</h3>
-                <button onClick={() => setShowApiSettings(false)} className="text-gray-500">✕</button>
-              </div>
-              
-              <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-gray-500 uppercase font-bold">API 端点</label>
-                  <input type="text" value={customEndpoint} onChange={(e) => setCustomEndpoint(e.target.value)} placeholder="https://proxy.com" className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 outline-none" />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-gray-500 uppercase font-bold">API KEY</label>
-                  <input type="password" value={customKey} onChange={(e) => setCustomKey(e.target.value)} placeholder="sk-..." className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 outline-none font-mono" />
-                </div>
-
-                <div className="pt-2 border-t border-white/5 space-y-3">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-amber-500 uppercase font-bold">基础模型 (Flash)</label>
-                    <input type="text" value={modelFlash} onChange={(e) => setModelFlash(e.target.value)} className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 outline-none" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-amber-500 uppercase font-bold">专业模型 (Pro)</label>
-                    <input type="text" value={modelPro} onChange={(e) => setModelPro(e.target.value)} className="w-full bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 outline-none" />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between py-2 border-y border-white/5">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] text-white font-bold uppercase">低额度极速模式</span>
-                    <span className="text-[8px] text-gray-500">推荐配额紧张时开启（全部使用 Flash 模型）</span>
-                  </div>
-                  <button onClick={() => setIsLowQuotaMode(!isLowQuotaMode)} className={`w-10 h-5 rounded-full relative transition-all ${isLowQuotaMode ? 'bg-amber-500' : 'bg-white/10'}`}>
-                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${isLowQuotaMode ? 'left-5' : 'left-0.5'}`}></div>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <button onClick={handleTestConnection} disabled={testStatus === 'testing'} className="py-2 bg-white/10 rounded-lg text-[10px] font-bold uppercase hover:bg-white/20">
-                    {testStatus === 'testing' ? '中...' : '测试连接'}
-                  </button>
-                  <button onClick={() => { saveApiSettings(); setShowApiSettings(false); }} className="py-2 bg-amber-500 text-black rounded-lg text-[10px] font-bold uppercase hover:bg-white">保存应用</button>
-                </div>
-                
-                {testErrorMessage && <p className="text-[9px] text-red-400 break-words">错误: {testErrorMessage}</p>}
-                {testStatus === 'success' && <p className="text-[9px] text-green-400 uppercase font-bold">连接成功 ✓</p>}
-              </div>
-            </div>
-          )}
 
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
-              <p className="text-xs font-bold text-white">{currentUser.name}</p>
-              <p className="text-[10px] text-amber-500 uppercase font-mono">{currentUser.role}</p>
+              <p className="text-xs font-bold text-white leading-none">{currentUser.name}</p>
+              <p className="text-[9px] text-amber-500 uppercase font-mono tracking-tighter">{currentUser.role}</p>
             </div>
-            <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-lg shadow-lg">{currentUser.avatar}</div>
+            <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-lg shadow-lg border border-white/10">{currentUser.avatar}</div>
           </div>
         </div>
       </header>
 
+      {/* API 配置模态框 - 高端设计 */}
+      {showApiSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div 
+            ref={modalRef} 
+            className="w-full max-w-md bg-[#111] border border-[#222] rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(245,158,11,0.1)] animate-in zoom-in-95 duration-300"
+          >
+            <div className="p-10 space-y-8">
+              <div className="flex justify-between items-center border-b border-white/5 pb-6">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-bold text-white serif-font tracking-tight">API 服务底座配置</h3>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Advanced Engine Settings</p>
+                </div>
+                <button onClick={() => setShowApiSettings(false)} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition-colors">✕</button>
+              </div>
+
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest block">第三方 API 链接 (Base URL)</label>
+                  <input 
+                    type="text" 
+                    value={customEndpoint}
+                    onChange={(e) => setCustomEndpoint(e.target.value)}
+                    placeholder="https://api.example.com/v1"
+                    className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-sm text-white focus:border-amber-500/50 outline-none transition-all placeholder:text-gray-800 font-mono shadow-inner"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest block">API 访问密钥 (Key)</label>
+                  <input 
+                    type="password" 
+                    value={customKey}
+                    onChange={(e) => setCustomKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-sm text-white focus:border-amber-500/50 outline-none transition-all font-mono shadow-inner"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest block">推理模型名称 (Model Name)</label>
+                  <input 
+                    type="text" 
+                    value={customModel}
+                    onChange={(e) => setCustomModel(e.target.value)}
+                    placeholder="gemini-2.5-pro-latest"
+                    className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-sm text-white focus:border-amber-500/50 outline-none transition-all font-mono shadow-inner"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-5 bg-white/5 rounded-2xl border border-white/5">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-bold text-gray-300 block">兼容第三方API</span>
+                    <span className="text-[9px] text-gray-500 uppercase">启用非原生中转代理支持</span>
+                  </div>
+                  <button 
+                    onClick={() => setIsCompatibleMode(!isCompatibleMode)}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isCompatibleMode ? 'bg-amber-500' : 'bg-white/10'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all shadow-md ${isCompatibleMode ? 'left-7' : 'left-1'}`}></div>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-5 bg-white/5 rounded-2xl border border-white/5">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-bold text-gray-300 block">低额度极速模式</span>
+                    <span className="text-[9px] text-gray-500 uppercase">全部强制调用 Flash 模型</span>
+                  </div>
+                  <button 
+                    onClick={() => setIsLowQuotaMode(!isLowQuotaMode)}
+                    className={`w-12 h-6 rounded-full transition-all relative ${isLowQuotaMode ? 'bg-amber-500' : 'bg-white/10'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all shadow-md ${isLowQuotaMode ? 'left-7' : 'left-1'}`}></div>
+                  </button>
+                </div>
+
+                {testStatus !== 'idle' && (
+                  <div className={`p-4 rounded-2xl border text-[10px] font-mono leading-relaxed transition-all animate-in slide-in-from-top-2 ${
+                    testStatus === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 
+                    testStatus === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-amber-500/5 border-amber-500/20 text-amber-500'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {testStatus === 'testing' ? (
+                        <div className="w-2 h-2 border-b-2 border-amber-500 rounded-full animate-spin"></div>
+                      ) : testStatus === 'success' ? (
+                        <span className="text-emerald-500">✓</span>
+                      ) : (
+                        <span className="text-red-500">✕</span>
+                      )}
+                      {testMessage}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={handleTestConnection}
+                  disabled={testStatus === 'testing'}
+                  className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase hover:bg-white/10 transition-all text-gray-300 disabled:opacity-50"
+                >
+                  链接测试
+                </button>
+                <button 
+                  onClick={() => { saveApiSettings(); setShowApiSettings(false); }}
+                  className="flex-1 py-4 bg-amber-500 text-black rounded-2xl text-[10px] font-black uppercase shadow-xl shadow-amber-500/20 hover:scale-105 transition-all"
+                >
+                  保存配置
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-[1500px] mx-auto px-6 mt-12">
         {!result && (
-          <div className="flex flex-col items-center justify-center text-center space-y-12 py-20">
+          <div className="flex flex-col items-center justify-center text-center space-y-12 py-20 animate-in fade-in duration-700">
             <div className="space-y-4">
               <h2 className="text-6xl md:text-8xl font-bold text-white serif-font tracking-tight">视界 <br /><span className="text-amber-500 italic">导演工业系统</span></h2>
-              <p className="max-w-2xl text-gray-500 text-lg mx-auto font-light">
-                针对 Gemini 3 工业化适配。如遇 429 报错，请开启极速模式。
+              <p className="max-w-2xl text-gray-500 text-lg mx-auto font-light leading-relaxed">
+                顶尖分镜推理引擎。地毯式解析剧本核心指令，锁定 <span className="text-amber-500 font-medium">△ 指标</span>，同步嵌入对白与系统音。
               </p>
             </div>
             
-            <div className="w-full max-w-4xl bg-[#111] p-1 rounded-[2.5rem] border border-[#222] shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-              <div className="bg-[#0a0a0a] rounded-[2.2rem] p-8 space-y-6">
+            <div className="w-full max-w-4xl bg-[#111] p-1 rounded-[3.5rem] border border-[#222] shadow-[0_50px_100px_rgba(0,0,0,0.6)]">
+              <div className="bg-[#0a0a0a] rounded-[3.2rem] p-10 space-y-8">
                 {!hasApiKey && !customKey ? (
-                  <div className="py-12 px-6 border-2 border-dashed border-amber-500/30 rounded-3xl bg-amber-500/5 flex flex-col items-center">
-                    <div className="text-4xl mb-4">🔑</div>
-                    <h3 className="text-xl font-bold text-white mb-2">配置 API 密钥</h3>
-                    <div className="flex gap-4 mt-6">
-                      <button onClick={handleOpenKeyDialog} className="px-8 py-3 bg-amber-500 text-black font-bold rounded-full hover:bg-white shadow-lg">官方 Key</button>
-                      <button onClick={() => setShowApiSettings(true)} className="px-8 py-3 bg-white/5 border border-white/20 font-bold rounded-full hover:bg-white/10">第三方配置</button>
+                  <div className="py-16 px-6 border-2 border-dashed border-amber-500/20 rounded-[2.5rem] bg-amber-500/[0.02] flex flex-col items-center">
+                    <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center text-3xl mb-6 shadow-inner">🔑</div>
+                    <h3 className="text-2xl font-bold text-white mb-2 serif-font">初始化导演引擎</h3>
+                    <p className="text-gray-500 text-sm mb-10 max-w-xs">为了启动工业级推理逻辑，我们需要配置您的 API 连接底座。</p>
+                    <div className="flex gap-4">
+                      <button onClick={handleOpenKeyDialog} className="px-10 py-4 bg-amber-500 text-black font-black text-xs uppercase rounded-full hover:bg-white shadow-xl shadow-amber-500/10 transition-all">官方认证</button>
+                      <button onClick={() => setShowApiSettings(true)} className="px-10 py-4 bg-white/5 border border-white/10 font-black text-xs uppercase rounded-full hover:bg-white/10 transition-all">自定义配置</button>
                     </div>
                   </div>
                 ) : (
                   <>
-                    <textarea value={plot} onChange={(e) => setPlot(e.target.value)} placeholder="在此输入剧本内容..." className="w-full h-64 bg-transparent border-none text-white text-lg focus:ring-0 resize-none font-light leading-relaxed placeholder:text-gray-700" />
-                    <div className="flex justify-between items-center border-t border-[#1a1a1a] pt-6">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className="text-[10px] text-gray-600 font-mono flex items-center gap-2 uppercase tracking-widest">
-                          <span className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span> {hasApiKey ? '引擎就绪' : '等待 Key'}
-                        </span>
-                        {isLowQuotaMode && <span className="text-[9px] text-amber-500/80 font-bold">⚠️ 当前处于低配额极速模式</span>}
+                    <textarea 
+                      value={plot} 
+                      onChange={(e) => setPlot(e.target.value)} 
+                      placeholder="在此处输入或粘贴剧本正文内容..." 
+                      className="w-full h-80 bg-transparent border-none text-white text-xl focus:ring-0 resize-none font-light leading-relaxed placeholder:text-gray-800" 
+                    />
+                    <div className="flex justify-between items-center border-t border-[#1a1a1a] pt-8">
+                      <div className="flex flex-col items-start gap-2">
+                        <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-lg">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                          <span className="text-[10px] text-green-500 font-black uppercase tracking-widest">引擎连接正常</span>
+                        </div>
+                        {isLowQuotaMode && <span className="text-[9px] text-amber-500/60 font-black uppercase tracking-tighter">⚡ 当前处于低配额极速模式</span>}
                       </div>
-                      <button onClick={handleGenerate} disabled={loading} className="px-12 py-4 bg-amber-500 text-black font-bold rounded-full hover:bg-white transition-all shadow-[0_0_30px_rgba(245,158,11,0.2)]">
-                        {loading ? '构思中...' : '开始构思分镜'}
+                      <button 
+                        onClick={handleGenerate} 
+                        disabled={loading} 
+                        className="px-16 py-5 bg-amber-500 text-black font-black text-sm uppercase rounded-full hover:bg-white hover:scale-105 transition-all shadow-[0_20px_50px_rgba(245,158,11,0.2)]"
+                      >
+                        {loading ? '构思中...' : '启动分镜推理'}
                       </button>
                     </div>
                   </>
                 )}
               </div>
               {error && (
-                <div className="mt-4 px-8 pb-4">
-                  <div className="bg-red-500/10 border border-red-500/30 text-red-500 px-6 py-4 rounded-2xl text-xs text-left leading-relaxed">
-                    {error}
+                <div className="mt-4 px-10 pb-6">
+                  <div className="bg-red-600/10 border border-red-600/30 text-red-500 px-8 py-5 rounded-[2rem] text-xs text-left leading-relaxed animate-in fade-in slide-in-from-bottom-2">
+                    <span className="font-bold mr-2">SYSTEM ERROR:</span> {error}
                   </div>
                 </div>
               )}
@@ -271,18 +347,25 @@ const App: React.FC = () => {
         )}
 
         {result && (
-          <div className="space-y-16 animate-in fade-in duration-700">
+          <div className="space-y-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
              <div className="flex justify-between items-end border-b border-[#222] pb-12">
-              <div className="space-y-4">
-                <button onClick={() => { setResult(null); }} className="px-6 py-2.5 bg-amber-500 text-black rounded-full text-xs font-bold">← 返回编辑剧本</button>
-                <div className="space-y-2 pt-4">
-                  <span className="text-amber-500 text-xs font-bold uppercase tracking-[0.3em]">全量分镜蓝图</span>
-                  <h3 className="text-5xl font-bold text-white serif-font tracking-tight">视觉核心导演方案</h3>
+              <div className="space-y-6">
+                <button 
+                  onClick={() => { setResult(null); }} 
+                  className="px-8 py-3 bg-white/5 border border-white/10 text-white rounded-full text-[10px] font-black uppercase hover:bg-white hover:text-black transition-all"
+                >
+                  ← 返回剧本编辑
+                </button>
+                <div className="space-y-2">
+                  <span className="text-amber-500 text-xs font-black uppercase tracking-[0.4em] block italic">Industrial Storyboard Blueprint</span>
+                  <h3 className="text-6xl font-bold text-white serif-font tracking-tight">视觉核心导演方案</h3>
                 </div>
               </div>
-              <button onClick={handleExport} className="px-10 py-3 bg-white text-black rounded-full text-xs font-black shadow-xl">📥 导出 (TXT)</button>
+              <div className="flex gap-4">
+                <button onClick={handleExport} className="px-12 py-4 bg-amber-500 text-black rounded-full text-[11px] font-black uppercase shadow-2xl hover:bg-white transition-all">📥 导出完整分镜表</button>
+              </div>
             </div>
-            <div className="space-y-12">
+            <div className="space-y-16">
               {result.groups.map((group, idx) => (
                 <ShotCard key={idx} group={group} currentUser={currentUser} onAddComment={handleAddComment} />
               ))}
@@ -291,15 +374,39 @@ const App: React.FC = () => {
         )}
 
         {loading && (
-          <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-32 h-32 mb-10 relative">
-              <div className="absolute inset-0 border-4 border-t-amber-500 rounded-full animate-spin"></div>
+          <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-6 text-center backdrop-blur-3xl">
+            <div className="w-48 h-48 mb-12 relative">
+              <div className="absolute inset-0 border-[6px] border-amber-500/10 rounded-full"></div>
+              <div className="absolute inset-0 border-[6px] border-t-amber-500 rounded-full animate-spin"></div>
+              <div className="absolute inset-4 border-[2px] border-amber-500/5 rounded-full animate-reverse-spin"></div>
             </div>
-            <h3 className="text-amber-500 font-bold uppercase tracking-[0.6em] mb-4 text-xl">正在分阶段进行分镜会审</h3>
-            <p className="text-gray-400 text-sm max-w-md italic">{loadingMsg}</p>
+            <div className="space-y-4 max-w-lg">
+              <h3 className="text-white font-bold uppercase tracking-[1em] text-2xl serif-font italic">正在同步工业分镜蓝图</h3>
+              <p className="text-amber-500/60 text-xs font-mono uppercase tracking-[0.3em] animate-pulse">{loadingMsg}</p>
+            </div>
+            <div className="mt-16 w-64 h-1 bg-white/5 rounded-full overflow-hidden">
+               <div className="h-full bg-amber-500 animate-loading-bar"></div>
+            </div>
           </div>
         )}
       </main>
+
+      <style>{`
+        @keyframes reverse-spin {
+          from { transform: rotate(360deg); }
+          to { transform: rotate(0deg); }
+        }
+        .animate-reverse-spin {
+          animation: reverse-spin 3s linear infinite;
+        }
+        @keyframes loading-bar {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        .animate-loading-bar {
+          animation: loading-bar 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 };
